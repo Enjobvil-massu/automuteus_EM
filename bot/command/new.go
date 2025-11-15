@@ -2,6 +2,7 @@ package command
 
 import (
 	"fmt"
+
 	"github.com/automuteus/automuteus/v8/pkg/settings"
 	"github.com/bwmarrin/discordgo"
 	"github.com/nicksnyder/go-i18n/v2/i18n"
@@ -23,6 +24,7 @@ type NewInfo struct {
 	ActiveGames  int64
 }
 
+// /new → /start にリネーム済み
 var New = discordgo.ApplicationCommand{
 	Name:        "start",
 	Description: "オートミュートを開始します",
@@ -31,50 +33,50 @@ var New = discordgo.ApplicationCommand{
 func NewResponse(status NewStatus, info NewInfo, sett *settings.GuildSettings) *discordgo.InteractionResponse {
 	var content string
 	var embeds []*discordgo.MessageEmbed
-	flags := discordgo.MessageFlagsEphemeral // private message by default
+	// デフォルトは「自分だけ見える」メッセージ
+	flags := discordgo.MessageFlagsEphemeral
 
 	switch status {
 	case NewSuccess:
-		content = sett.LocalizeMessage(&i18n.Message{
-			ID: "commands.new.success",
-			Other: "Paste this link into your web browser:\n <{{.hyperlink}}>\n" +
-				"or click [here]({{.apiHyperlink}})\n\n" +
-				"If the URL doesn't work, you may need to run the capture program first, and then try again.\n\n" +
-				"Don't have the capture installed? Latest version [here]({{.downloadURL}})\n\nTo link your capture manually:",
-		},
-			map[string]interface{}{
-				"hyperlink":    info.Hyperlink,
-				"apiHyperlink": info.ApiHyperlink,
-				"downloadURL":  CaptureDownloadURL,
-			})
+		// ===== /start 成功時の見た目 =====
+		// AmongUsCapture の Host / Code を日本語で表示
+		content = "" // 本文テキストは使わず Embed だけにする
+
 		embeds = []*discordgo.MessageEmbed{
 			{
+				Title: "🍰 AmongUsCapture を接続してください",
+				Description: fmt.Sprintf(
+					"AmongUsCapture の設定画面で、下記の値を入力してください。\n\n"+
+						"・**Host** → 下の「ホスト」をコピペ\n"+
+						"・**Code** → 下の「コード」をコピペ\n\n"+
+						"※ キャプチャ本体のダウンロードは <%s> から行えます。",
+					CaptureDownloadURL,
+				),
+				Color: 0x00cc88,
 				Fields: []*discordgo.MessageEmbedField{
 					{
-						Name: sett.LocalizeMessage(&i18n.Message{
-							ID:    "commands.new.success.url",
-							Other: "URL",
-						}),
-						Value:  info.MinimalURL,
-						Inline: true,
+						Name:  "ホスト",
+						Value: fmt.Sprintf("```%s```", info.MinimalURL),
+						Inline: false,
 					},
 					{
-						Name: sett.LocalizeMessage(&i18n.Message{
-							ID:    "commands.new.success.code",
-							Other: "Code",
-						}),
-						Value:  info.ConnectCode,
+						Name:   "コード",
+						Value:  fmt.Sprintf("```%s```", info.ConnectCode),
 						Inline: true,
 					},
 				},
 			},
 		}
+
 	case NewNoVoiceChannel:
+		// VC 入ってないときのエラーは既存のまま（必要なら後で日本語化でもOK）
 		content = sett.LocalizeMessage(&i18n.Message{
 			ID:    "commands.new.nochannel",
 			Other: "Please join a voice channel before starting a match!",
 		})
+
 	case NewLockout:
+		// ロックアウト警告は元のまま（公開メッセージ）
 		content = sett.LocalizeMessage(&i18n.Message{
 			ID: "commands.new.lockout",
 			Other: "If I start any more games, Discord will lock me out, or throttle the games I'm running! 😦\n" +
@@ -83,9 +85,9 @@ func NewResponse(status NewStatus, info NewInfo, sett *settings.GuildSettings) *
 		}, map[string]interface{}{
 			"Games": fmt.Sprintf("%d/%d", info.ActiveGames, DefaultMaxActiveGames),
 		})
-		flags = discordgo.MessageFlags(0) // public message
-
+		flags = discordgo.MessageFlags(0) // これはみんなに見せる
 	}
+
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
