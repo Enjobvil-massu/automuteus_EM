@@ -51,6 +51,9 @@ func NewResponse(status NewStatus, info NewInfo, sett *settings.GuildSettings) *
 		//    （今は https のまま）
 		// host = strings.Replace(host, "https://", "wss://", 1)
 
+		// 追記したい注意メッセージ
+		note := "接続後、AmongUsCapture がフリーズする場合があります。\nその場合はキャプチャを再起動し、再度【登録】ボタンを押してください。"
+
 		embeds = []*discordgo.MessageEmbed{
 			{
 				Title: "🍰 AmongUsCapture を接続してください",
@@ -58,14 +61,16 @@ func NewResponse(status NewStatus, info NewInfo, sett *settings.GuildSettings) *
 					"AmongUsCapture の🔌設定画面で、下記の値を入力してください。\n\n"+
 						"・**Host** → 下の「ホスト」をコピペ\n"+
 						"・**Code** → 下の「コード」をコピペ\n\n"+
-						"※ キャプチャ本体のダウンロードは <%s> から行えます。",
+						"※ キャプチャ本体のダウンロードは <%s> から行えます。\n\n"+
+						"%s",
 					CaptureDownloadURL,
+					note,
 				),
 				Color: 0x00cc88,
 				Fields: []*discordgo.MessageEmbedField{
 					{
-						Name:  "ホスト",
-						Value: fmt.Sprintf("```%s```", host),
+						Name:   "ホスト",
+						Value:  fmt.Sprintf("```%s```", host),
 						Inline: false,
 					},
 					{
@@ -73,9 +78,6 @@ func NewResponse(status NewStatus, info NewInfo, sett *settings.GuildSettings) *
 						Value:  fmt.Sprintf("```%s```", info.ConnectCode),
 						Inline: true,
 					},
-					Description: fmt.Sprintf(
-					"接続後オートミュートキャプチャーがフリーズする場合があります。/nその場合は再起動後、再度【登録】ボタンをおしてください。",
-				),
 				},
 			},
 		}
