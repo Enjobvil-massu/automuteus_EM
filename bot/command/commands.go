@@ -22,7 +22,7 @@ var All = []*discordgo.ApplicationCommand{
 	&New,
 	&Refresh,
 	&Pause,
-	&end,
+	&End,
 	&Link,
 	&Unlink,
 	&Settings,
