@@ -19,10 +19,10 @@ const (
 // All is all slash commands for the bot, ordered to match the README
 var All = []*discordgo.ApplicationCommand{
 	&Help,
-	&New,
+	&Start,
 	&Refresh,
 	&Pause,
-	&End,
+	&Stop,
 	&Link,
 	&Unlink,
 	&Settings,
