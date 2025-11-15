@@ -64,7 +64,6 @@ func NewResponse(status NewStatus, info NewInfo, sett *settings.GuildSettings) *
 						"※ キャプチャ本体のダウンロードは <%s> から行えます。\n\n"+
 						"%s",
 					CaptureDownloadURL,
-					note,
 				),
 				Color: 0x00cc88,
 				Fields: []*discordgo.MessageEmbedField{
@@ -78,6 +77,7 @@ func NewResponse(status NewStatus, info NewInfo, sett *settings.GuildSettings) *
 						Value:  fmt.Sprintf("```%s```", info.ConnectCode),
 						Inline: true,
 					},
+					note,
 				},
 			},
 		}
