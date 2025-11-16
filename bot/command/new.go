@@ -55,9 +55,9 @@ func NewResponse(status NewStatus, info NewInfo, sett *settings.GuildSettings) *
 
 		embeds = []*discordgo.MessageEmbed{
 			{
-				Title: "🍰 AmongUsCapture を接続してください",
+				Title: "【AmongUsCapture と接続してください】",
 				Description: fmt.Sprintf(
-					"AmongUsCapture の🔌設定画面で、下記の値を入力してください。\n\n\n"+
+					"AmongUsCapture の🔌設定画面で下記を入力してください。\n\n\n"+
 					"\n",
 				),
 				Fields: []*discordgo.MessageEmbedField{
