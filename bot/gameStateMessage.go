@@ -15,30 +15,6 @@ import (
 const DeferredEditSeconds = 2
 const colorSelectID = "select-color"
 
-// ▼ 色名 → 表示ラベル（絵文字＋カタカナ）
-var colorLabelJP = map[string]string{
-	"red":    "🟥 レッド",
-	"black":  "⬛ ブラック",
-	"white":  "⬜ ホワイト",
-	"rose":   "🌸 ローズ",
-	"blue":   "🔵 ブルー",
-	"cyan":   "🟦 シアン",
-	"yellow": "🟨 イエロー",
-	"pink":   "💗 ピンク",
-
-	"purple": "🟣 パープル",
-	"orange": "🟧 オレンジ",
-	"banana": "🍌 バナナ",
-	"coral":  "🧱 コーラル",
-	"lime":   "🥬 ライム",
-	"green":  "🌲 グリーン",
-	"gray":   "⬜ グレー",
-	"maroon": "🍷 マルーン",
-
-	"brown": "🤎 ブラウン",
-	"tan":   "🟫 タン",
-}
-
 type GameStateMessage struct {
 	MessageID        string `json:"messageID"`
 	MessageChannelID string `json:"messageChannelID"`
@@ -78,6 +54,63 @@ func (dgs *GameState) DeleteGameStateMsg(s *discordgo.Session, reset bool) bool 
 
 var DeferredEdits = make(map[string]*discordgo.MessageEmbed)
 var DeferredEditsLock = sync.Mutex{}
+
+// ==== 色情報マスタ ====
+//  key: 英語の色名キーワード（label や value に含まれる文字）
+type colorInfo struct {
+	LabelJP string // ラベル（絵文字＋カタカナ）
+	Emoji   string // ボタンの Emoji.Name として送る Unicode 絵文字
+}
+
+var colorInfoMap = []struct {
+	Key string
+	Info colorInfo
+}{
+	{"red", colorInfo{LabelJP: "🟥 レッド", Emoji: "🟥"}},
+	{"black", colorInfo{LabelJP: "⬛ ブラック", Emoji: "⬛"}},
+	{"white", colorInfo{LabelJP: "⬜ ホワイト", Emoji: "⬜"}},
+	{"rose", colorInfo{LabelJP: "🌸 ローズ", Emoji: "🌸"}},
+
+	{"blue", colorInfo{LabelJP: "🔵 ブルー", Emoji: "🔵"}},
+	{"cyan", colorInfo{LabelJP: "🟦 シアン", Emoji: "🟦"}},
+	{"yellow", colorInfo{LabelJP: "🟨 イエロー", Emoji: "🟨"}},
+	{"pink", colorInfo{LabelJP: "💗 ピンク", Emoji: "💗"}},
+
+	{"purple", colorInfo{LabelJP: "🟣 パープル", Emoji: "🟣"}},
+	{"orange", colorInfo{LabelJP: "🟧 オレンジ", Emoji: "🟧"}},
+	{"banana", colorInfo{LabelJP: "🍌 バナナ", Emoji: "🍌"}},
+	{"coral", colorInfo{LabelJP: "🧱 コーラル", Emoji: "🧱"}},
+
+	{"lime", colorInfo{LabelJP: "🥬 ライム", Emoji: "🥬"}},
+	{"green", colorInfo{LabelJP: "🌲 グリーン", Emoji: "🌲"}},
+	{"gray", colorInfo{LabelJP: "⬜ グレー", Emoji: "⬜"}},
+	{"maroon", colorInfo{LabelJP: "🍷 マルーン", Emoji: "🍷"}},
+
+	{"brown", colorInfo{LabelJP: "🤎 ブラウン", Emoji: "🤎"}},
+	{"tan", colorInfo{LabelJP: "🟫 タン", Emoji: "🟫"}},
+}
+
+// 色ボタン用のラベル＆絵文字決定
+func buildColorButtonMeta(opt discordgo.SelectMenuOption) (label string, emojiName string) {
+	// ✖ はずす（X）用
+	if opt.Value == X || strings.EqualFold(opt.Label, X) {
+		return "✖ はずす", "✖"
+	}
+
+	// label と value をまとめて小文字に
+	lower := strings.ToLower(opt.Label + " " + opt.Value)
+
+	// 色名キーワードにマッチしたら、その情報を使う
+	for _, entry := range colorInfoMap {
+		if strings.Contains(lower, entry.Key) {
+			return entry.Info.LabelJP, entry.Info.Emoji
+		}
+	}
+
+	// どれにもマッチしなかった場合のフォールバック
+	// → 絵文字はとりあえず白四角、ラベルは元のラベルのまま
+	return opt.Label, "⬜"
+}
 
 // Note this is not a pointer; we never expect the underlying DGS to change on an edit
 func (dgs GameState) dispatchEdit(s *discordgo.Session, me *discordgo.MessageEmbed) (newEdit bool) {
@@ -134,36 +167,33 @@ func deferredEditWorker(s *discordgo.Session, channelID, messageID string) {
 	}
 }
 
-// ===== ボタン式 色選択付きの CreateMessage（完全版） =====
+// ===== ここからボタン式 色選択付きの CreateMessage =====
 
 func (dgs *GameState) CreateMessage(s *discordgo.Session, me *discordgo.MessageEmbed, channelID string, authorID string) bool {
-	// 元のセレクトメニュー用のオプションから Value だけもらう
+	// 元々のセレクトメニュー用オプションを流用
 	opts := EmojisToSelectMenuOptions(GlobalAlivenessEmojis[true], X)
 
-	const maxPerRow = 4
+	const maxPerRow = 5
 	var components []discordgo.MessageComponent
 	curRow := discordgo.ActionsRow{}
 
 	for idx, opt := range opts {
-		// Value を小文字化してマッピング
-		key := strings.ToLower(opt.Value)
-		label, ok := colorLabelJP[key]
-		if !ok || label == "" {
-			// もしマップに無ければ元のラベルをそのまま使う
-			label = opt.Label
-		}
-
 		customID := fmt.Sprintf("%s:%s", colorSelectID, opt.Value)
+
+		label, emojiName := buildColorButtonMeta(opt)
 
 		btn := discordgo.Button{
 			CustomID: customID,
 			Label:    label,
 			Style:    discordgo.SecondaryButton,
-			// Emoji フィールドは一切使わない（← ここが 400 対策のポイント）
+			Emoji: discordgo.ComponentEmoji{
+				Name: emojiName, // ← Unicode 絵文字だけを使用
+			},
 		}
 
 		curRow.Components = append(curRow.Components, btn)
 
+		// 5 個ごとに改行
 		if (idx+1)%maxPerRow == 0 {
 			components = append(components, curRow)
 			curRow = discordgo.ActionsRow{}
@@ -174,18 +204,6 @@ func (dgs *GameState) CreateMessage(s *discordgo.Session, me *discordgo.MessageE
 	if len(curRow.Components) > 0 {
 		components = append(components, curRow)
 	}
-
-	// 一番下に「❌ unlink」ボタンを追加
-	unlinkRow := discordgo.ActionsRow{
-		Components: []discordgo.MessageComponent{
-			discordgo.Button{
-				CustomID: fmt.Sprintf("%s:%s", colorSelectID, X),
-				Label:    "❌ unlink",
-				Style:    discordgo.DangerButton,
-			},
-		},
-	}
-	components = append(components, unlinkRow)
 
 	msg := sendEmbedWithComponents(s, channelID, me, components)
 	if msg != nil {
