@@ -112,33 +112,34 @@ func deferredEditWorker(s *discordgo.Session, channelID, messageID string) {
 // ===== ボタン式 色選択付き CreateMessage =====
 
 func (dgs *GameState) CreateMessage(s *discordgo.Session, me *discordgo.MessageEmbed, channelID string, authorID string) bool {
-    // 色ボタン定義（Value / Label）
+    // 色ボタン定義（Value / Label / Emoji）
     colors := []struct {
         value string
         label string
+        emoji string
     }{
-        {"red", "🟥 レッド"},
-        {"black", "⬛ ブラック"},
-        {"white", "⬜ ホワイト"},
-        {"rose", "🌸 ローズ"},
+        {"red", "レッド", "🟥"},
+        {"black", "ブラック", "⬛"},
+        {"white", "ホワイト", "⬜"},
+        {"rose", "ローズ", "🌸"},
 
-        {"blue", "🔵 ブルー"},
-        {"cyan", "🟦 シアン"},
-        {"yellow", "🟨 イエロー"},
-        {"pink", "💗 ピンク"},
+        {"blue", "ブルー", "🔵"},
+        {"cyan", "シアン", "🟦"},
+        {"yellow", "イエロー", "🟨"},
+        {"pink", "ピンク", "💗"},
 
-        {"purple", "🟣 パープル"},
-        {"orange", "🟧 オレンジ"},
-        {"banana", "🍌 バナナ"},
-        {"coral", "🧱 コーラル"},
+        {"purple", "パープル", "🟣"},
+        {"orange", "オレンジ", "🟧"},
+        {"banana", "バナナ", "🍌"},
+        {"coral", "コーラル", "🧱"},
 
-        {"lime", "🥬 ライム"},
-        {"green", "🌲 グリーン"},
-        {"gray", "⬜ グレー"},
-        {"maroon", "🍷 マルーン"},
+        {"lime", "ライム", "🥬"},
+        {"green", "グリーン", "🌲"},
+        {"gray", "グレー", "⬜"},
+        {"maroon", "マルーン", "🍷"},
 
-        {"brown", "🤎 ブラウン"},
-        {"tan", "🟫 タン"},
+        {"brown", "ブラウン", "🤎"},
+        {"tan", "タン", "🟫"},
     }
 
     const maxPerRow = 5
@@ -151,9 +152,11 @@ func (dgs *GameState) CreateMessage(s *discordgo.Session, me *discordgo.MessageE
 
         btn := discordgo.Button{
             CustomID: customID,
-            Label:    c.label,                  // 「🟥 レッド」など
+            Label:    c.label,                // カタカナだけ
             Style:    discordgo.SecondaryButton,
-            // Emoji フィールドは一切使わない（ダブル表示＆INVALID_EMOJI対策）
+            Emoji: &discordgo.ComponentEmoji{ // 標準絵文字だけを使用
+                Name: c.emoji,
+            },
         }
 
         curRow.Components = append(curRow.Components, btn)
@@ -167,13 +170,16 @@ func (dgs *GameState) CreateMessage(s *discordgo.Session, me *discordgo.MessageE
         components = append(components, curRow)
     }
 
-    // 一番下：解除ボタン（X と同じ扱いにする）
+    // 一番下：解除ボタン（X と同じ扱い）
     unlinkRow := discordgo.ActionsRow{
         Components: []discordgo.MessageComponent{
             discordgo.Button{
                 CustomID: fmt.Sprintf("%s:%s", colorSelectID, X), // "select-color:X"
-                Label:    "❌ unlink",
+                Label:    "解除",
                 Style:    discordgo.DangerButton,
+                Emoji: &discordgo.ComponentEmoji{
+                    Name: "❌",
+                },
             },
         },
     }
