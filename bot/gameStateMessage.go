@@ -2,6 +2,7 @@ package bot
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +14,30 @@ import (
 // bumped for public rollout. Don't need to update the status message more than once every 2 secs prob
 const DeferredEditSeconds = 2
 const colorSelectID = "select-color"
+
+// ▼ 色名 → 表示ラベル（絵文字＋カタカナ）
+var colorLabelJP = map[string]string{
+	"red":    "🟥 レッド",
+	"black":  "⬛ ブラック",
+	"white":  "⬜ ホワイト",
+	"rose":   "🌸 ローズ",
+	"blue":   "🔵 ブルー",
+	"cyan":   "🟦 シアン",
+	"yellow": "🟨 イエロー",
+	"pink":   "💗 ピンク",
+
+	"purple": "🟣 パープル",
+	"orange": "🟧 オレンジ",
+	"banana": "🍌 バナナ",
+	"coral":  "🧱 コーラル",
+	"lime":   "🥬 ライム",
+	"green":  "🌲 グリーン",
+	"gray":   "⬜ グレー",
+	"maroon": "🍷 マルーン",
+
+	"brown": "🤎 ブラウン",
+	"tan":   "🟫 タン",
+}
 
 type GameStateMessage struct {
 	MessageID        string `json:"messageID"`
@@ -109,75 +134,59 @@ func deferredEditWorker(s *discordgo.Session, channelID, messageID string) {
 	}
 }
 
-// ===== ボタン式 色選択付き GameState メッセージ作成 =====
+// ===== ボタン式 色選択付きの CreateMessage（完全版） =====
 
 func (dgs *GameState) CreateMessage(s *discordgo.Session, me *discordgo.MessageEmbed, channelID string, authorID string) bool {
-	// 色ボタン定義（絵文字 + カタカナ表記をラベルに含める。Emoji フィールドは一切使わない）
-	colorRows := [][]struct {
-		Value string
-		Label string
-	}{
-		{
-			{Value: "red", Label: "🟥 レッド"},
-			{Value: "black", Label: "⬛ ブラック"},
-			{Value: "white", Label: "⬜ ホワイト"},
-			{Value: "rose", Label: "🌸 ローズ"},
-		},
-		{
-			{Value: "blue", Label: "🔵 ブルー"},
-			{Value: "cyan", Label: "🟦 シアン"},
-			{Value: "yellow", Label: "🟨 イエロー"},
-			{Value: "pink", Label: "💗 ピンク"},
-		},
-		{
-			{Value: "purple", Label: "🟣 パープル"},
-			{Value: "orange", Label: "🟧 オレンジ"},
-			{Value: "banana", Label: "🍌 バナナ"},
-			{Value: "coral", Label: "🧱 コーラル"},
-		},
-		{
-			{Value: "lime", Label: "🥬 ライム"},
-			{Value: "green", Label: "🌲 グリーン"},
-			{Value: "gray", Label: "⬜ グレー"},
-			{Value: "maroon", Label: "🍷 マルーン"},
-		},
-		{
-			{Value: "brown", Label: "🤎 ブラウン"},
-			{Value: "tan", Label: "🟫 タン"},
-		},
-	}
+	// 元のセレクトメニュー用のオプションから Value だけもらう
+	opts := EmojisToSelectMenuOptions(GlobalAlivenessEmojis[true], X)
 
+	const maxPerRow = 4
 	var components []discordgo.MessageComponent
+	curRow := discordgo.ActionsRow{}
 
-	// 色ボタン行を作成（Emoji プロパティは一切セットしない）
-	for _, row := range colorRows {
-		ar := discordgo.ActionsRow{}
-		for _, c := range row {
-			btn := discordgo.Button{
-				CustomID: fmt.Sprintf("%s:%s", colorSelectID, c.Value),
-				Label:    c.Label,
-				Style:    discordgo.SecondaryButton,
-			}
-			ar.Components = append(ar.Components, btn)
+	for idx, opt := range opts {
+		// Value を小文字化してマッピング
+		key := strings.ToLower(opt.Value)
+		label, ok := colorLabelJP[key]
+		if !ok || label == "" {
+			// もしマップに無ければ元のラベルをそのまま使う
+			label = opt.Label
 		}
-		if len(ar.Components) > 0 {
-			components = append(components, ar)
+
+		customID := fmt.Sprintf("%s:%s", colorSelectID, opt.Value)
+
+		btn := discordgo.Button{
+			CustomID: customID,
+			Label:    label,
+			Style:    discordgo.SecondaryButton,
+			// Emoji フィールドは一切使わない（← ここが 400 対策のポイント）
+		}
+
+		curRow.Components = append(curRow.Components, btn)
+
+		if (idx+1)%maxPerRow == 0 {
+			components = append(components, curRow)
+			curRow = discordgo.ActionsRow{}
 		}
 	}
 
-	// 一番下に「✖ アンリンク」ボタン
+	// 余りがあれば最後の行として追加
+	if len(curRow.Components) > 0 {
+		components = append(components, curRow)
+	}
+
+	// 一番下に「❌ unlink」ボタンを追加
 	unlinkRow := discordgo.ActionsRow{
 		Components: []discordgo.MessageComponent{
 			discordgo.Button{
 				CustomID: fmt.Sprintf("%s:%s", colorSelectID, X),
-				Label:    "❌ アンリンク",
+				Label:    "❌ unlink",
 				Style:    discordgo.DangerButton,
 			},
 		},
 	}
 	components = append(components, unlinkRow)
 
-	// Embed + コンポーネント送信
 	msg := sendEmbedWithComponents(s, channelID, me, components)
 	if msg != nil {
 		dgs.GameStateMsg.LeaderID = authorID
