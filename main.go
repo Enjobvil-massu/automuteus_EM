@@ -258,34 +258,46 @@ func discordMainWrapper() error {
 	// only register commands if we're not the official bot, OR we're the primary/main shard
 	var registeredCommands []registeredCommand
 	if !isOfficial || shards.isPrimaryShard() {
-		for _, guild := range slashCommandGuildIds {
-			for _, v := range command.All {
 
-				// ★ ここで有効／無効を判定する
-				if ok, exists := EnabledSlashCommands[v.Name]; !exists || !ok {
-					log.Printf("Skipping command %s (disabled)\n", v.Name)
-					continue
-				}
+		// ここで「有効なコマンドだけ」を取得
+		enabledCmds := command.EnabledCommands()
+
+		for _, guild := range slashCommandGuildIds {
+
+			if guild == "" {
+				log.Printf("Overwriting GLOBAL slash commands (%d enabled)\n", len(enabledCmds))
+			} else {
+				log.Printf("Overwriting slash commands in guild %s (%d enabled)\n", guild, len(enabledCmds))
+			}
+
+			// BulkOverwrite で、そのギルドのコマンド一覧を「enabledCmds だけ」に完全上書き
+			cmds, err := bots[0].PrimarySession.ApplicationCommandBulkOverwrite(
+				bots[0].PrimarySession.State.User.ID,
+				guild,
+				enabledCmds,
+			)
+			if err != nil {
+				log.Panicf("Cannot bulk overwrite commands: %v", err)
+			}
+
+			// 後で削除する用に控えを作っておく（元のロジックを踏襲）
+			for _, c := range cmds {
+				registeredCommands = append(registeredCommands, registeredCommand{
+					GuildID:            guild,
+					ApplicationCommand: c,
+				})
 
 				if guild == "" {
-					log.Printf("Registering command %s GLOBALLY\n", v.Name)
+					log.Printf("Registered command %s GLOBALLY\n", c.Name)
 				} else {
-					log.Printf("Registering command %s in guild %s\n", v.Name, guild)
-				}
-
-				id, err := bots[0].PrimarySession.ApplicationCommandCreate(bots[0].PrimarySession.State.User.ID, guild, v)
-				if err != nil {
-					log.Panicf("Cannot create command: %v", err)
-				} else {
-					registeredCommands = append(registeredCommands, registeredCommand{
-						GuildID:            guild,
-						ApplicationCommand: id,
-					})
+					log.Printf("Registered command %s in guild %s\n", c.Name, guild)
 				}
 			}
 		}
+
 		log.Println("Finishing registering all commands!")
 	}
+
 
 	<-sc
 	log.Printf("Received Sigterm or Kill signal. Bot will terminate in 1 second")
