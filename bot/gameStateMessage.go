@@ -1,12 +1,12 @@
 package bot
 
 import (
-    "fmt" // ★ ボタン用 CustomID 生成で使用
-    "github.com/automuteus/automuteus/v8/internal/server"
-    "github.com/automuteus/automuteus/v8/pkg/settings"
+    "fmt"
     "sync"
     "time"
 
+    "github.com/automuteus/automuteus/v8/internal/server"
+    "github.com/automuteus/automuteus/v8/pkg/settings"
     "github.com/bwmarrin/discordgo"
 )
 
@@ -53,6 +53,28 @@ func (dgs *GameState) DeleteGameStateMsg(s *discordgo.Session, reset bool) bool 
 
 var DeferredEdits = make(map[string]*discordgo.MessageEmbed)
 var DeferredEditsLock = sync.Mutex{}
+
+// 色名 → カタカナ表記
+var colorLabelJP = map[string]string{
+    "Red":    "🟥 レッド",
+    "Blue":   "🔵 ブルー",
+    "Green":  "🌲 グリーン",
+    "Pink":   "💗 ピンク",
+    "Orange": "🟧 オレンジ",
+    "Yellow": "🟨 イエロー",
+    "Black":  "⬛ ブラック",
+    "White":  "⬜ ホワイト",
+    "Purple": "🟣 パープル",
+    "Brown":  "🤎 ブラウン",
+    "Cyan":   "🟦 シアン",
+    "Lime":   "🥬 ライム",
+    "Maroon": "🍷 マルーン",
+    "Rose":   "🌸 ローズ",
+    "Banana": "🍌 バナナ",
+    "Gray":   "⬜ グレー",
+    "Tan":    "🟫 タン",
+    "Coral":  "🧱 コーラル",
+}
 
 // Note this is not a pointer; we never expect the underlying DGS to change on an edit
 func (dgs GameState) dispatchEdit(s *discordgo.Session, me *discordgo.MessageEmbed) (newEdit bool) {
@@ -109,10 +131,10 @@ func deferredEditWorker(s *discordgo.Session, channelID, messageID string) {
     }
 }
 
-// ===== ここからボタン式 色選択付きの CreateMessage =====
+// ===== ボタン式 色選択付きの CreateMessage =====
 
 func (dgs *GameState) CreateMessage(s *discordgo.Session, me *discordgo.MessageEmbed, channelID string, authorID string) bool {
-    // もともとのセレクトメニュー用関数からオプションを生成
+    // もともとのセレクトメニュー用からオプションを生成
     opts := EmojisToSelectMenuOptions(GlobalAlivenessEmojis[true], X)
 
     const maxPerRow = 5
@@ -120,12 +142,18 @@ func (dgs *GameState) CreateMessage(s *discordgo.Session, me *discordgo.MessageE
     curRow := discordgo.ActionsRow{}
 
     for idx, opt := range opts {
-        // CustomID は "select-color:Red" のような形式にする
+        // ラベルをカタカナに変換
+        label := opt.Label
+        if jp, ok := colorLabelJP[label]; ok {
+            label = jp
+        }
+
+        // CustomID は "select-color:Red" のような形式
         customID := fmt.Sprintf("%s:%s", colorSelectID, opt.Value)
 
         btn := discordgo.Button{
             CustomID: customID,
-            Label:    opt.Label,
+            Label:    label,
             Style:    discordgo.SecondaryButton,
             Emoji:    opt.Emoji,
         }
