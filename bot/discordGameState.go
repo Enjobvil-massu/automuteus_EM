@@ -139,9 +139,9 @@ func (dgs *GameState) ToEmojiEmbedFields(emojis AlivenessEmojis, sett *settings.
 		// 生存/死亡で別のクルー絵文字を取得
 		emoji := emojis[player.IsAlive][player.Color]
 
-		statusText := "🟢 生存"
+		statusText := "生存中"
 		if !player.IsAlive {
-			statusText = "💀 死亡"
+			statusText = "死亡中"
 		}
 
 		// ボタンと同じ色表記（🟥 レッド など）
