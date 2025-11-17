@@ -53,24 +53,34 @@ func (dgs *GameState) Reset() {
 	dgs.GameData = amongus.NewGameData()
 }
 
+// ===== ここを「DisplayName()」対応に変更 =====
 func (dgs *GameState) checkCacheAndAddUser(g *discordgo.Guild, s *discordgo.Session, userID string) (UserData, bool) {
 	if g == nil {
 		return UserData{}, false
 	}
-	// check and see if they're cached first
+
+	// まず Guild のメンバーキャッシュから探す
 	for _, v := range g.Members {
 		if v.User != nil && v.User.ID == userID {
-			user := MakeUserDataFromDiscordUser(v.User, v.Nick)
+			// ボイスリストと同じ「表示名」（ニックネーム → なければグローバル表示名）
+			displayName := v.DisplayName()
+
+			user := MakeUserDataFromDiscordUser(v.User, displayName)
 			dgs.UserData[v.User.ID] = user
 			return user, true
 		}
 	}
+
+	// キャッシュにいなければ API から取得
 	mem, err := s.GuildMember(g.ID, userID)
 	if err != nil {
 		log.Println(err)
 		return UserData{}, false
 	}
-	user := MakeUserDataFromDiscordUser(mem.User, mem.Nick)
+
+	displayName := mem.DisplayName()
+
+	user := MakeUserDataFromDiscordUser(mem.User, displayName)
 	dgs.UserData[mem.User.ID] = user
 	return user, true
 }
@@ -157,13 +167,14 @@ func (dgs *GameState) ToEmojiEmbedFields(emojis AlivenessEmojis, sett *settings.
 			if userData.InGameName == player.Name {
 				// ===== リンク済みプレイヤー =====
 
-				// ディスコード側の表示名（ニックネーム優先、なければユーザー名）
+				// 表示名（Nick: DisplayName を保存してあるので、Nick を優先）
 				discordName := userData.GetNickName()
 				if discordName == "" {
 					discordName = userData.GetUserName()
 				}
 
-				// フィールド名：アモアス名（ディスコード表示名）
+				// フィールド名：アモアス名（Discord表示名）
+				// 例）まっすー（彡まっすー彡）
 				field.Name = fmt.Sprintf("%s（%s）", player.Name, discordName)
 
 				// 本文：状態：<クルー絵文字> 生存/死亡　色：🟥 レッド
