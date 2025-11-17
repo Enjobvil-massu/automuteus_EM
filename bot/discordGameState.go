@@ -53,7 +53,32 @@ func (dgs *GameState) Reset() {
 	dgs.GameData = amongus.NewGameData()
 }
 
-// ===== ここを「DisplayName()」対応に変更 =====
+// ===== ここ：Member から「ボイス欄と同じ表示名」を取り出すヘルパー =====
+func memberDisplayName(m *discordgo.Member) string {
+	if m == nil || m.User == nil {
+		return ""
+	}
+
+	// 1. サーバーニックネーム
+	if m.Nick != "" {
+		return m.Nick
+	}
+
+	// 2. グローバル表示名（新しい「表示名」）
+	if m.User.GlobalName != "" {
+		return m.User.GlobalName
+	}
+
+	// 3. 旧来のユーザー名（@の後ろ）
+	if m.User.Username != "" {
+		return m.User.Username
+	}
+
+	// 最悪IDだけ
+	return m.User.ID
+}
+
+// ===== ユーザーキャッシュへの登録 =====
 func (dgs *GameState) checkCacheAndAddUser(g *discordgo.Guild, s *discordgo.Session, userID string) (UserData, bool) {
 	if g == nil {
 		return UserData{}, false
@@ -62,9 +87,9 @@ func (dgs *GameState) checkCacheAndAddUser(g *discordgo.Guild, s *discordgo.Sess
 	// まず Guild のメンバーキャッシュから探す
 	for _, v := range g.Members {
 		if v.User != nil && v.User.ID == userID {
-			// ボイスリストと同じ「表示名」（ニックネーム → なければグローバル表示名）
-			displayName := v.DisplayName()
+			displayName := memberDisplayName(v)
 
+			// displayName を「Nick」として保存する
 			user := MakeUserDataFromDiscordUser(v.User, displayName)
 			dgs.UserData[v.User.ID] = user
 			return user, true
@@ -78,7 +103,7 @@ func (dgs *GameState) checkCacheAndAddUser(g *discordgo.Guild, s *discordgo.Sess
 		return UserData{}, false
 	}
 
-	displayName := mem.DisplayName()
+	displayName := memberDisplayName(mem)
 
 	user := MakeUserDataFromDiscordUser(mem.User, displayName)
 	dgs.UserData[mem.User.ID] = user
@@ -167,20 +192,20 @@ func (dgs *GameState) ToEmojiEmbedFields(emojis AlivenessEmojis, sett *settings.
 			if userData.InGameName == player.Name {
 				// ===== リンク済みプレイヤー =====
 
-				// 表示名（Nick: DisplayName を保存してあるので、Nick を優先）
+				// checkCacheAndAddUser で「表示名」を Nick として保存しているので、
+				// Nick を最優先で使う
 				discordName := userData.GetNickName()
 				if discordName == "" {
 					discordName = userData.GetUserName()
 				}
 
 				// フィールド名：アモアス名（Discord表示名）
-				// 例）まっすー（彡まっすー彡）
 				field.Name = fmt.Sprintf("%s（%s）", player.Name, discordName)
 
 				// 本文：状態：<クルー絵文字> 生存/死亡　色：🟥 レッド
 				field.Value = fmt.Sprintf(
 					"状態：%s %s　色：%s",
-					emoji.FormatForInline(), // クルーの絵文字のみ
+					emoji.FormatForInline(),
 					statusText,
 					colorLabel,
 				)
