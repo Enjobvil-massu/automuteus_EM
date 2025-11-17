@@ -25,13 +25,14 @@ type GameState struct {
 	MatchID        int64 `json:"matchID"`
 	MatchStartUnix int64 `json:"matchStartUnix"`
 
-	UserData     UserDataSet `json:"userData"`
-	VoiceChannel string      `json:"voiceChannel"`
-
-	GameStateMsg GameStateMessage `json:"gameStateMessage"`
-
-	GameData amongus.GameData `json:"amongUsData"`
+	UserData     UserDataSet        `json:"userData"`
+	DisplayNames map[string]string  `json:"displayNames"` // 追加: userID -> 表示名（ニックネーム優先）
+	VoiceChannel string             `json:"voiceChannel"`
+	GameStateMsg GameStateMessage   `json:"gameStateMessage"`
+	GameData     amongus.GameData   `json:"amongUsData"`
 }
+
+// ===== GameState ヘルパー =====
 
 func NewDiscordGameState(guildID string) *GameState {
 	dgs := GameState{GuildID: guildID}
@@ -48,65 +49,61 @@ func (dgs *GameState) Reset() {
 	dgs.MatchID = -1
 	dgs.MatchStartUnix = -1
 	dgs.UserData = map[string]UserData{}
+	dgs.DisplayNames = map[string]string{} // 表示名キャッシュもリセット
 	dgs.VoiceChannel = ""
 	dgs.GameStateMsg = MakeGameStateMessage()
 	dgs.GameData = amongus.NewGameData()
 }
 
-// ===== メンバーの「表示名」（VCに近い名前）を決めるヘルパー =====
-//
-//   1. サーバーニックネーム（設定されていればこれ）
-//   2. なければユーザー名（@ の後ろの名前）
-func memberDisplayName(m *discordgo.Member) string {
-	if m == nil || m.User == nil {
-		return ""
-	}
-
-	// ギルドごとのニックネームがあればそれを優先
-	if m.Nick != "" {
-		return m.Nick
-	}
-
-	// それ以外は通常のユーザー名
-	if m.User.Username != "" {
-		return m.User.Username
-	}
-
-	// 一応のフォールバック
-	return m.User.ID
-}
-
-// ===== ユーザーキャッシュへの登録 =====
-//
-// VC にいるメンバーなどを見つけた時に、UserDataSet に追加する処理。
-// 「表示名」を 2番目の引数（nick）として保存しておくことで、あとで GetNickName() から取れるようにしている。
+// ギルドメンバー情報をキャッシュしつつ UserData を作成
 func (dgs *GameState) checkCacheAndAddUser(g *discordgo.Guild, s *discordgo.Session, userID string) (UserData, bool) {
 	if g == nil {
 		return UserData{}, false
 	}
 
-	// まず Guild のメンバーキャッシュから探す
-	for _, v := range g.Members {
-		if v.User != nil && v.User.ID == userID {
-			displayName := memberDisplayName(v)
+	// ===== 1. Guild メンバーキャッシュから探す =====
+	for _, m := range g.Members {
+		if m.User != nil && m.User.ID == userID {
+			user := MakeUserDataFromDiscordUser(m.User, m.Nick)
+			dgs.UserData[m.User.ID] = user
 
-			user := MakeUserDataFromDiscordUser(v.User, displayName)
-			dgs.UserData[v.User.ID] = user
+			// ニックネーム → なければユーザー名
+			display := m.Nick
+			if display == "" && m.User != nil {
+				display = m.User.Username
+			}
+			if display != "" {
+				if dgs.DisplayNames == nil {
+					dgs.DisplayNames = map[string]string{}
+				}
+				dgs.DisplayNames[m.User.ID] = display
+			}
+
 			return user, true
 		}
 	}
 
-	// キャッシュにいなければ API から取得
+	// ===== 2. API で取得（キャッシュに無い場合） =====
 	mem, err := s.GuildMember(g.ID, userID)
 	if err != nil {
 		log.Println(err)
 		return UserData{}, false
 	}
 
-	displayName := memberDisplayName(mem)
-
-	user := MakeUserDataFromDiscordUser(mem.User, displayName)
+	user := MakeUserDataFromDiscordUser(mem.User, mem.Nick)
 	dgs.UserData[mem.User.ID] = user
+
+	display := mem.Nick
+	if display == "" && mem.User != nil {
+		display = mem.User.Username
+	}
+	if display != "" {
+		if dgs.DisplayNames == nil {
+			dgs.DisplayNames = map[string]string{}
+		}
+		dgs.DisplayNames[mem.User.ID] = display
+	}
+
 	return user, true
 }
 
@@ -161,6 +158,10 @@ func colorLabelFromEmojiName(name string) string {
 // ===== ここから Embed のプレイヤー一覧生成 =====
 //
 
+// ToEmojiEmbedFields はゲーム状態から Embed のフィールドを生成する
+// ・各色ごとに 1 フィールド
+// ・フィールド名: アモアス名（ディスコード表示名）
+// ・フィールド本文: 状態 と 色の情報
 func (dgs *GameState) ToEmojiEmbedFields(emojis AlivenessEmojis, sett *settings.GuildSettings) []*discordgo.MessageEmbedField {
 	// 色順で並べるための一時配列（最大 18 色）
 	unsorted := make([]*discordgo.MessageEmbedField, 18)
@@ -190,23 +191,26 @@ func (dgs *GameState) ToEmojiEmbedFields(emojis AlivenessEmojis, sett *settings.
 		linked := false
 		for _, userData := range dgs.UserData {
 			if userData.InGameName == player.Name {
-				// ===== リンク済みプレイヤー =====
+				// リンク済みプレイヤー
 
-				// checkCacheAndAddUser で「表示名」を Nick に入れているので、
-				// Nick を最優先で使う。なければ UserName を使う。
-				discordName := userData.GetNickName()
-				if discordName == "" {
-					discordName = userData.GetUserName()
+				// userID からキャッシュしておいた表示名を取得
+				userID := userData.GetID()
+				displayName := ""
+				if dgs.DisplayNames != nil {
+					displayName = dgs.DisplayNames[userID]
+				}
+				// キャッシュがない場合のフォールバック（念のため）
+				if displayName == "" {
+					displayName = userID
 				}
 
-				// フィールド名：アモアス名（Discord表示名）
-				// 例）まっすー（彡まっすー彡）
-				field.Name = fmt.Sprintf("%s（%s）", player.Name, discordName)
+				// フィールド名：アモアス名（表示名） ※メンションではないのでピン通知されない
+				field.Name = fmt.Sprintf("%s（%s）", player.Name, displayName)
 
 				// 本文：状態：<クルー絵文字> 生存/死亡　色：🟥 レッド
 				field.Value = fmt.Sprintf(
 					"状態：%s %s　色：%s",
-					emoji.FormatForInline(), // クルーの絵文字のみ
+					emoji.FormatForInline(), // クルーの絵文字のみ（🟢 や 💀 は使わない）
 					statusText,
 					colorLabel,
 				)
@@ -217,7 +221,7 @@ func (dgs *GameState) ToEmojiEmbedFields(emojis AlivenessEmojis, sett *settings.
 		}
 
 		if !linked {
-			// ===== 未リンクプレイヤー =====
+			// 未リンクプレイヤー
 			unlinkedText := sett.LocalizeMessage(&i18n.Message{
 				ID:    "discordGameState.ToEmojiEmbedFields.Unlinked",
 				Other: "Unlinked",
@@ -244,6 +248,6 @@ func (dgs *GameState) ToEmojiEmbedFields(emojis AlivenessEmojis, sett *settings.
 		}
 	}
 
-	// 1人1ブロックで縦並びにするので、パディングは不要
+	// ※1人1ブロックで縦並びにするので、最後の行を埋めるパディングは不要
 	return sorted
 }
