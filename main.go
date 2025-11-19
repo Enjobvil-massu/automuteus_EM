@@ -50,13 +50,13 @@ type registeredCommand struct {
 // false = 無効（完全に削除する）
 // コマンド名はログの「Registering command X」の X を書きます。
 var EnabledSlashCommands = map[string]bool{
-	"help":    true,
-	"new":     true,  // 開始コマンド（/new）
-	"refresh": false, // 今回は使わない
-	"pause":   false, // 今回は使わない
-	"stop":    true,
-	"link":    true,
-	"unlink":  true,
+	"help":     true,
+	"new":      true,  // 開始コマンド（/new）
+	"refresh":  false, // 今回は使わない
+	"pause":    false, // 今回は使わない
+	"stop":     true,
+	"link":     true,
+	"unlink":   true,
 	"settings": true,
 	"privacy":  false,
 	"info":     false,
@@ -108,6 +108,15 @@ func discordMainWrapper() error {
 		mw := io.MultiWriter(os.Stdout, file)
 		log.SetOutput(mw)
 	}
+
+	// ===== ここから JST 固定処理 =====
+	// UTC+9 (JST) の固定タイムゾーンを作成
+	jst := time.FixedZone("Asia/Tokyo", 9*60*60)
+	// Go ランタイム全体の「ローカルタイム」を JST に変更
+	time.Local = jst
+	// 確認用ログ（起動時に一度だけ）
+	log.Println("Init: time.Local forced to Asia/Tokyo (UTC+9)")
+	// ===== JST 固定処理ここまで =====
 
 	emojiGuildID := os.Getenv("EMOJI_GUILD_ID")
 
