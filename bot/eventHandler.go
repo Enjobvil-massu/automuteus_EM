@@ -69,22 +69,51 @@ func (bot *Bot) SubscribeToGameByConnectCode(guildID, connectCode string, endGam
 				sett := bot.StorageInterface.GetGuildSettings(guildID)
 
 				switch job.JobType {
+
+				// ======================================================
+				// ★ ConnectionJob = Capture の接続/切断通知
+				// ======================================================
 				case task.ConnectionJob:
 					lock, dgs := bot.RedisInterface.GetDiscordGameStateAndLock(dgsRequest)
 					for lock == nil {
 						lock, dgs = bot.RedisInterface.GetDiscordGameStateAndLock(dgsRequest)
 					}
+
+					// 変更前の接続状態を保持（変化があったときだけ Refresh）
+					prevCapture := dgs.CaptureConnected
+
 					if job.Payload == "true" {
 						dgs.Linked = true
+
+						// ★ Capture 接続確立！
+						dgs.CaptureConnected = true
+						dgs.LastCapturePing = time.Now().Unix()
 					} else {
 						dgs.Linked = false
+
+						// ★ Capture 切断
+						dgs.CaptureConnected = false
+						dgs.LastCapturePing = time.Now().Unix()
 					}
+
 					dgs.ConnectCode = connectCode
 					bot.RedisInterface.SetDiscordGameState(dgs, lock)
 
 					bot.handleTrackedMembers(bot.PrimarySession, sett, 0, NoPriority, dgsRequest)
-					bot.DispatchRefreshOrEdit(dgs, dgsRequest, sett)
 
+					// ★ 接続状態が変化した瞬間だけ「作り直し」
+					//   - false -> true ならボタン出現
+					//   - true -> false ならボタン消える（任意だけど安全）
+					if prevCapture != dgs.CaptureConnected {
+						bot.RefreshGameStateMessage(dgsRequest, sett)
+					} else {
+						bot.DispatchRefreshOrEdit(dgs, dgsRequest, sett)
+					}
+
+				// ======================================================
+				// ★ Lobby/State/Player Job でも
+				//   「ConnectionJobが来ない保険」で CaptureConnected を true にする
+				// ======================================================
 				case task.LobbyJob:
 					var lobby game.Lobby
 					err = json.Unmarshal([]byte(job.Payload.(string)), &lobby)
@@ -92,16 +121,16 @@ func (bot *Bot) SubscribeToGameByConnectCode(guildID, connectCode string, endGam
 						log.Println(err)
 						break
 					}
-
 					bot.processLobby(sett, lobby, dgsRequest)
+
 				case task.StateJob:
 					num, err := strconv.ParseInt(job.Payload.(string), 10, 64)
 					if err != nil {
 						log.Println(err)
 						break
 					}
-
 					bot.processTransition(game.Phase(num), dgsRequest)
+
 				case task.PlayerJob:
 					var player game.Player
 					err = json.Unmarshal([]byte(job.Payload.(string)), &player)
@@ -130,10 +159,9 @@ func (bot *Bot) SubscribeToGameByConnectCode(guildID, connectCode string, endGam
 						server.RecordDiscordRequests(bot.RedisInterface.client, server.MessageCreateDelete, 1)
 					}
 					correlatedUserID = userID
+
 				case task.GameOverJob:
 					var gameOverResult game.Gameover
-					// log.Println("Successfully identified game over event:")
-					// log.Println(job.Payload)
 					err := json.Unmarshal([]byte(job.Payload.(string)), &gameOverResult)
 					if err != nil {
 						log.Println(err)
@@ -174,13 +202,11 @@ func (bot *Bot) SubscribeToGameByConnectCode(guildID, connectCode string, endGam
 						}
 						go dumpGameToPostgres(*dgs, bot.PostgresInterface, gameOverResult)
 
-						// refresh the game message if the setting is marked (it is not locked, the previous dgs is
-						// read-only). This means the original msg is refreshed, not the gameover message
+						// refresh the game message if the setting is marked
 						if sett.AutoRefresh {
 							bot.RefreshGameStateMessage(dgsRequest, sett)
 						}
 
-						// now we need to fetch the state again (AFTER refreshing) to mark the game as complete/
 						lock, dgs := bot.RedisInterface.GetDiscordGameStateAndLock(dgsRequest)
 						for lock == nil {
 							lock, dgs = bot.RedisInterface.GetDiscordGameStateAndLock(dgsRequest)
@@ -190,6 +216,7 @@ func (bot *Bot) SubscribeToGameByConnectCode(guildID, connectCode string, endGam
 						bot.RedisInterface.SetDiscordGameState(dgs, lock)
 					}
 				}
+
 				if job.JobType != task.ConnectionJob {
 					go func(userID string, ge storage.PostgresGameEvent) {
 						dgs := bot.RedisInterface.GetReadOnlyDiscordGameState(dgsRequest)
@@ -284,7 +311,23 @@ func (bot *Bot) processPlayer(sett *settings.GuildSettings, player game.Player, 
 		}
 		dgs.Linked = true
 
-		defer bot.RedisInterface.SetDiscordGameState(dgs, lock)
+		// ★ 追加: ConnectionJobが来ない場合の保険
+		initialConnect := false
+		if !dgs.CaptureConnected {
+			dgs.CaptureConnected = true
+			dgs.LastCapturePing = time.Now().Unix()
+			initialConnect = true
+		} else {
+			dgs.LastCapturePing = time.Now().Unix()
+		}
+
+		// defer を拡張：保存してロック解除したあとに Refresh（ボタン付与）
+		defer func() {
+			bot.RedisInterface.SetDiscordGameState(dgs, lock)
+			if initialConnect {
+				go bot.RefreshGameStateMessage(dgsRequest, sett)
+			}
+		}()
 
 		if player.Disconnected || player.Action == game.LEFT {
 			if player.Disconnected {
@@ -358,6 +401,16 @@ func (bot *Bot) processTransition(phase game.Phase, dgsRequest GameStateRequest)
 		lock, dgs = bot.RedisInterface.GetDiscordGameStateAndLock(dgsRequest)
 	}
 
+	// ★ 追加: ConnectionJobが来ない場合の保険（Transition来た=Capture接続済み）
+	initialConnect := false
+	if !dgs.CaptureConnected {
+		dgs.CaptureConnected = true
+		dgs.LastCapturePing = time.Now().Unix()
+		initialConnect = true
+	} else {
+		dgs.LastCapturePing = time.Now().Unix()
+	}
+
 	oldPhase := dgs.GameData.UpdatePhase(phase)
 	if oldPhase == phase {
 		lock.Release(ctx)
@@ -374,6 +427,12 @@ func (bot *Bot) processTransition(phase game.Phase, dgsRequest GameStateRequest)
 	}
 
 	bot.RedisInterface.SetDiscordGameState(dgs, lock)
+
+	// ★ 初回接続ならここで1回 Refresh（ボタン付与）
+	if initialConnect {
+		bot.RefreshGameStateMessage(dgsRequest, sett)
+	}
+
 	switch phase {
 	case game.MENU:
 		bot.DispatchRefreshOrEdit(dgs, dgsRequest, sett)
@@ -381,7 +440,6 @@ func (bot *Bot) processTransition(phase game.Phase, dgsRequest GameStateRequest)
 		if err != nil {
 			log.Println("Error in unmuting all users when returning to menu ", err)
 		}
-		// on a gameover event from the capture, it's like going to the lobby; use that delay
 	case game.GAMEOVER:
 		phase = game.LOBBY
 		fallthrough
@@ -393,7 +451,6 @@ func (bot *Bot) processTransition(phase game.Phase, dgsRequest GameStateRequest)
 
 	case game.TASKS:
 		delay := sett.Delays.GetDelay(oldPhase, phase)
-		// when going from discussion to tasks, we should mute alive players FIRST
 		priority := AlivePriority
 		if oldPhase == game.LOBBY {
 			priority = NoPriority
@@ -420,10 +477,25 @@ func (bot *Bot) processLobby(sett *settings.GuildSettings, lobby game.Lobby, dgs
 		lock, dgs = bot.RedisInterface.GetDiscordGameStateAndLock(dgsRequest)
 	}
 
+	// ★ 追加: Lobby来た=Capture接続済みの保険
+	initialConnect := false
+	if !dgs.CaptureConnected {
+		dgs.CaptureConnected = true
+		dgs.LastCapturePing = time.Now().Unix()
+		initialConnect = true
+	} else {
+		dgs.LastCapturePing = time.Now().Unix()
+	}
+
 	dgs.GameData.SetRoomRegionMap(lobby.LobbyCode, lobby.Region.ToString(), lobby.PlayMap)
 	bot.RedisInterface.SetDiscordGameState(dgs, lock)
 
-	bot.DispatchRefreshOrEdit(dgs, dgsRequest, sett)
+	// ★ 初回接続なら Refresh（ボタン付与）
+	if initialConnect {
+		bot.RefreshGameStateMessage(dgsRequest, sett)
+	} else {
+		bot.DispatchRefreshOrEdit(dgs, dgsRequest, sett)
+	}
 }
 
 func startGameInPostgres(dgs GameState, psql *storage.PsqlInterface) uint64 {
@@ -489,11 +561,9 @@ func dumpGameToPostgres(dgs GameState, psql *storage.PsqlInterface, gameOver gam
 				continue
 			}
 
-			// assume crewmate by default
 			won := !imposterWin
 			role := game.CrewmateRole
 			for _, pi := range gameOver.PlayerInfos {
-				// only override for the imposters
 				if pi.IsImpostor {
 					if strings.EqualFold(pi.Name, inGameData.Name) {
 						role = game.ImposterRole
