@@ -171,6 +171,33 @@ func deferredEditWorker(s *discordgo.Session, channelID, messageID string) {
 // ===== ここからボタン式 色選択付きの CreateMessage =====
 
 func (dgs *GameState) CreateMessage(s *discordgo.Session, me *discordgo.MessageEmbed, channelID string, authorID string) bool {
+
+	// ======================================================
+	// ★追加: Capture未接続なら「ボタン無し」で送信
+	// ======================================================
+	if !dgs.CaptureConnected {
+		if me != nil {
+			if me.Description != "" {
+				me.Description += "\n\n"
+			}
+			me.Description += "🔌 AmongUsCapture 接続待ちです。\nHost URL と Code を入力して接続してください。"
+		}
+
+		msg := sendEmbedWithComponents(s, channelID, me, []discordgo.MessageComponent{})
+		if msg != nil {
+			dgs.GameStateMsg.LeaderID = authorID
+			dgs.GameStateMsg.MessageChannelID = msg.ChannelID
+			dgs.GameStateMsg.MessageID = msg.ID
+			dgs.GameStateMsg.CreationTimeUnix = time.Now().Unix()
+			return true
+		}
+		return false
+	}
+
+	// ======================================================
+	// ★接続済みなら従来通りボタン生成
+	// ======================================================
+
 	// 元々のセレクトメニュー用オプションを流用
 	opts := EmojisToSelectMenuOptions(GlobalAlivenessEmojis[true], X)
 

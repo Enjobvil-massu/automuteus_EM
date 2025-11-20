@@ -25,11 +25,15 @@ type GameState struct {
 	MatchID        int64 `json:"matchID"`
 	MatchStartUnix int64 `json:"matchStartUnix"`
 
-	UserData     UserDataSet        `json:"userData"`
-	DisplayNames map[string]string  `json:"displayNames"` // 追加: userID -> 表示名（ニックネーム優先）
-	VoiceChannel string             `json:"voiceChannel"`
-	GameStateMsg GameStateMessage   `json:"gameStateMessage"`
-	GameData     amongus.GameData   `json:"amongUsData"`
+	UserData     UserDataSet       `json:"userData"`
+	DisplayNames map[string]string `json:"displayNames"` // 追加: userID -> 表示名（ニックネーム優先）
+	VoiceChannel string            `json:"voiceChannel"`
+	GameStateMsg GameStateMessage  `json:"gameStateMessage"`
+	GameData     amongus.GameData  `json:"amongUsData"`
+
+	// ===== 追加: AmongUsCapture 接続状態 =====
+	CaptureConnected bool  `json:"captureConnected"`
+	LastCapturePing  int64 `json:"lastCapturePing,omitempty"`
 }
 
 // ===== GameState ヘルパー =====
@@ -53,6 +57,10 @@ func (dgs *GameState) Reset() {
 	dgs.VoiceChannel = ""
 	dgs.GameStateMsg = MakeGameStateMessage()
 	dgs.GameData = amongus.NewGameData()
+
+	// ===== 追加: Capture未接続で初期化 =====
+	dgs.CaptureConnected = false
+	dgs.LastCapturePing = 0
 }
 
 // ギルドメンバー情報をキャッシュしつつ UserData を作成
