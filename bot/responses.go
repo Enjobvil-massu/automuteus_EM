@@ -344,7 +344,7 @@ func (dgs *GameState) descriptionAndColor(sett *settings.GuildSettings) (string,
 	if !dgs.Linked {
 		return sett.LocalizeMessage(&i18n.Message{
 			ID:    "responses.notLinked.Description",
-			Other: "❌**No capture linked! Click the link above to connect!**❌",
+			Other: "❌**オートミュートキャプチャーと未接続**❌",
 		}), discord.RED // red
 	} else if !dgs.Running {
 		return sett.LocalizeMessage(&i18n.Message{
