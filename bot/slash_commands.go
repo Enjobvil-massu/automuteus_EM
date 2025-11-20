@@ -49,7 +49,30 @@ const (
     downloadGamesConfirmedID      = "download-games-confirmed"
     downloadGameEventsConfirmedID = "download-game-events-confirmed"
     downloadCanceledID            = "download-canceled"
+
+    // ===== 追加: /stop ボタン用 =====
+    // CustomID: "stop-game:<starterUserID>"
+    stopButtonIDPrefix            = "stop-game"
 )
+
+// ===== 追加: /new(/start)のエフェメラルに付ける /stopボタン =====
+func stopButtonComponents(starterUserID string, sett *settings.GuildSettings) []discordgo.MessageComponent {
+    label := "/stop"
+    customID := fmt.Sprintf("%s:%s", stopButtonIDPrefix, starterUserID)
+
+    return []discordgo.MessageComponent{
+        discordgo.ActionsRow{
+            Components: []discordgo.MessageComponent{
+                discordgo.Button{
+                    CustomID: customID,
+                    Style:    discordgo.DangerButton,
+                    Label:    label,
+                    Emoji:    discordgo.ComponentEmoji{Name: "🛑"},
+                },
+            },
+        },
+    }
+}
 
 func (bot *Bot) handleInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
     respondChan := make(chan *discordgo.InteractionResponse)
@@ -303,13 +326,26 @@ func (bot *Bot) slashCommandHandler(s *discordgo.Session, i *discordgo.Interacti
 
                 bot.handleGameStartMessage(i.GuildID, i.ChannelID, voiceChannelID, i.Member.User.ID, sett, g, dgs.ConnectCode)
 
-                return command.NewResponse(status, command.NewInfo{
+                // ===== 修正: 返却レスポンスに /stop ボタンを追加 =====
+                resp := command.NewResponse(status, command.NewInfo{
                     Hyperlink:    hyperlink,
                     ApiHyperlink: apiHyperlink,
                     MinimalURL:   minimalURL,
                     ConnectCode:  dgs.ConnectCode,
                     ActiveGames:  activeGames, // not actually needed for Success messages
                 }, sett)
+
+                if resp != nil && resp.Data != nil {
+                    starterID := i.Member.User.ID
+                    resp.Data.Components = append(resp.Data.Components, stopButtonComponents(starterID, sett)...)
+
+                    // 念のためエフェメラル化（スクショの場所に出すため）
+                    if resp.Data.Flags == 0 {
+                        resp.Data.Flags = 1 << 6
+                    }
+                }
+                return resp
+
             } else {
                 // release the lock
                 bot.RedisInterface.SetDiscordGameState(nil, lock)
@@ -317,6 +353,7 @@ func (bot *Bot) slashCommandHandler(s *discordgo.Session, i *discordgo.Interacti
                     ActiveGames: activeGames, // only field we need for success messages
                 }, sett)
             }
+
         case command.Refresh.Name:
             if bot.RefreshGameStateMessage(gsr, sett) {
                 return command.PrivateResponse(ThumbsUp)
@@ -557,6 +594,7 @@ func (bot *Bot) slashCommandHandler(s *discordgo.Session, i *discordgo.Interacti
                 }
                 return command.DeadlockGameStateResponse(command.UnmuteAll, sett)
             }
+
         case command.Download.Name:
             if !isAdmin {
                 return command.InsufficientPermissionsResponse(sett)
@@ -634,6 +672,44 @@ func (bot *Bot) slashCommandHandler(s *discordgo.Session, i *discordgo.Interacti
         customID := i.MessageComponentData().CustomID
 
         switch {
+        // ========= 追加: /stop ボタン =========
+        case strings.HasPrefix(customID, stopButtonIDPrefix):
+            // CustomID: "stop-game:<starterUserID>"
+            parts := strings.SplitN(customID, ":", 2)
+            starterID := ""
+            if len(parts) == 2 {
+                starterID = parts[1]
+            }
+
+            // 起動者以外は拒否
+            if starterID != "" && i.Member != nil && i.Member.User != nil && i.Member.User.ID != starterID {
+                msg := sett.LocalizeMessage(&i18n.Message{
+                    ID:    "commands.stop.onlyStarter",
+                    Other: "このボタンは /start（ゲーム開始）を実行した起動者のみ押せます。",
+                })
+                return command.PrivateResponse(msg)
+            }
+
+            // /end と同じ終了処理
+            dgs := bot.RedisInterface.GetReadOnlyDiscordGameState(gsr)
+            if dgs != nil {
+                if !dgs.GameStateMsg.Exists() {
+                    return command.NoGameResponse(sett)
+                }
+
+                if v, ok := bot.EndGameChannels[dgs.ConnectCode]; ok {
+                    v <- true
+                }
+                delete(bot.EndGameChannels, dgs.ConnectCode)
+
+                err = bot.applyToAll(dgs, false, false)
+                if err != nil {
+                    return command.PrivateErrorResponse(command.End.Name, err, sett)
+                }
+                return command.PrivateResponse(ThumbsUp)
+            }
+            return command.DeadlockGameStateResponse(command.End.Name, sett)
+
         // ========= 色ボタン =========
         case strings.HasPrefix(customID, colorSelectID):
             // CustomID: "select-color:Red" 形式
