@@ -67,7 +67,6 @@ func stopButtonComponents(starterUserID string, sett *settings.GuildSettings) []
                     CustomID: customID,
                     Style:    discordgo.DangerButton,
                     Label:    label,
-                    Emoji:    discordgo.ComponentEmoji{Name: "🛑"},
                 },
             },
         },
