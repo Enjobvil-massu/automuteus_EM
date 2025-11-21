@@ -113,27 +113,33 @@ func MakeAndStartBot(version, commit, botToken, topGGToken, url, emojiGuildID st
 		return nil
 	}
 
-	log.Println("Finished identifying to the Discord API. Now ready for incoming events")
+    log.Println("Finished identifying to the Discord API. Now ready for incoming events")
 
-	playingText := os.Getenv("AUTOMUTEUS_LISTENING")
-	if playingText == "" {
-		playingText = "エンジョブ村オリジナルBOT"
-	}
-    	
-	// pretty sure this needs to happen per-shard
-	status := &discordgo.UpdateStatusData{
-		IdleSince: nil,
-		Activities: []*discordgo.Activity{&discordgo.Activity{
-			Name: listeningTo,
-			Type: discordgo.ActivityTypeListening,
-		}},
-		AFK:    false,
-		Status: "",
-	}
-	err = dg.UpdateStatusComplex(*status)
-	if err != nil {
-		log.Println(err)
-	}
+    // ✅ 表示文言（新しい環境変数があれば優先、なければ従来の LISTENING を流用）
+    playingText := os.Getenv("AUTOMUTEUS_PLAYING")
+    if playingText == "" {
+    	playingText = os.Getenv("AUTOMUTEUS_LISTENING") // 後方互換
+    }
+    if playingText == "" {
+    	playingText = "エンジョブ村オリジナルBOT"
+    }
+
+    // pretty sure this needs to happen per-shard
+    status := discordgo.UpdateStatusData{
+    	IdleSince: nil,
+    	Activities: []*discordgo.Activity{
+    		{
+	    		Name: playingText,
+	    		Type: discordgo.ActivityTypeGame, // ✅ ここが「プレイ中」
+	    	},
+	    },
+	    AFK:    false,
+	    Status: "online", // online / idle / dnd / invisible / "" でも可
+    }
+
+    if err := dg.UpdateStatusComplex(status); err != nil {
+    	log.Println("failed to set playing status:", err)
+    }
 
 	if topGGToken != "" {
 		dblClient, err := dbl.NewClient(topGGToken)
