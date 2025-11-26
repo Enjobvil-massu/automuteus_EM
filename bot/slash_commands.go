@@ -52,21 +52,36 @@ const (
 
     // ===== 追加: /stop ボタン用 =====
     // CustomID: "stop-game:<starterUserID>"
-    stopButtonIDPrefix            = "stop-game"
+    stopButtonIDPrefix = "stop-game"
+
+    // ===== 追加: /link ボタン用 =====
+    // CustomID: "link-game:<starterUserID>"
+    linkButtonIDPrefix = "link-game"
 )
 
-// ===== 追加: /new(/start)のエフェメラルに付ける /stopボタン =====
+// ===== 追加: /new(/start) のエフェメラルに付ける /link & /stop ボタン =====
 func stopButtonComponents(starterUserID string, sett *settings.GuildSettings) []discordgo.MessageComponent {
-    label := "/stop"
-    customID := fmt.Sprintf("%s:%s", stopButtonIDPrefix, starterUserID)
+    labelLink := "/link"
+    labelStop := "/stop"
+
+    stopID := fmt.Sprintf("%s:%s", stopButtonIDPrefix, starterUserID)
+    linkID := fmt.Sprintf("%s:%s", linkButtonIDPrefix, starterUserID)
 
     return []discordgo.MessageComponent{
         discordgo.ActionsRow{
             Components: []discordgo.MessageComponent{
+                // 左側: /link ボタン
                 discordgo.Button{
-                    CustomID: customID,
+                    CustomID: linkID,
+                    Style:    discordgo.SecondaryButton,
+                    Label:    labelLink,
+                    Emoji:    discordgo.ComponentEmoji{Name: "👉"},
+                },
+                // 右側: /stop ボタン
+                discordgo.Button{
+                    CustomID: stopID,
                     Style:    discordgo.DangerButton,
-                    Label:    label,
+                    Label:    labelStop,
                     Emoji:    discordgo.ComponentEmoji{Name: "👉"},
                 },
             },
@@ -326,7 +341,7 @@ func (bot *Bot) slashCommandHandler(s *discordgo.Session, i *discordgo.Interacti
 
                 bot.handleGameStartMessage(i.GuildID, i.ChannelID, voiceChannelID, i.Member.User.ID, sett, g, dgs.ConnectCode)
 
-                // ===== 修正: 返却レスポンスに /stop ボタンを追加 =====
+                // ===== 修正: 返却レスポンスに /link & /stop ボタンを追加 =====
                 resp := command.NewResponse(status, command.NewInfo{
                     Hyperlink:    hyperlink,
                     ApiHyperlink: apiHyperlink,
@@ -672,6 +687,31 @@ func (bot *Bot) slashCommandHandler(s *discordgo.Session, i *discordgo.Interacti
         customID := i.MessageComponentData().CustomID
 
         switch {
+        // ========= 追加: /link ボタン =========
+        case strings.HasPrefix(customID, linkButtonIDPrefix):
+            // CustomID: "link-game:<starterUserID>"
+            parts := strings.SplitN(customID, ":", 2)
+            starterID := ""
+            if len(parts) == 2 {
+                starterID = parts[1]
+            }
+
+            // 起動者以外は拒否（念のため。メッセージ自体がエフェメラルなので通常は見えません）
+            if starterID != "" && i.Member != nil && i.Member.User != nil && i.Member.User.ID != starterID {
+                msg := sett.LocalizeMessage(&i18n.Message{
+                    ID:    "commands.link.onlyStarter",
+                    Other: "このボタンは /start（ゲーム開始）を実行した起動者のみ押せます。",
+                })
+                return command.PrivateResponse(msg)
+            }
+
+            // /link の使い方を案内するだけのヘルプ
+            msg := sett.LocalizeMessage(&i18n.Message{
+                ID:    "commands.link.helpFromButton",
+                Other: "色のリンクは `/link` コマンド、またはゲームステータスメッセージの色ボタンから行ってください。",
+            })
+            return command.PrivateResponse(msg)
+
         // ========= 追加: /stop ボタン =========
         case strings.HasPrefix(customID, stopButtonIDPrefix):
             // CustomID: "stop-game:<starterUserID>"
