@@ -2,7 +2,7 @@ package command
 
 import (
 	"fmt"
-	"strings" // ★ 追加
+	"strings" // ホストURL整形用
 
 	"github.com/automuteus/automuteus/v8/pkg/settings"
 	"github.com/bwmarrin/discordgo"
@@ -34,7 +34,9 @@ var New = discordgo.ApplicationCommand{
 func NewResponse(status NewStatus, info NewInfo, sett *settings.GuildSettings) *discordgo.InteractionResponse {
 	var content string
 	var embeds []*discordgo.MessageEmbed
-	flags := discordgo.MessageFlagsEphemeral // デフォルトは自分だけ
+
+	// ★ デフォルトは「実行者だけに見える」エフェメラル
+	flags := discordgo.MessageFlagsEphemeral
 
 	switch status {
 	case NewSuccess:
@@ -47,7 +49,7 @@ func NewResponse(status NewStatus, info NewInfo, sett *settings.GuildSettings) *
 		// ① :443 を消す（https のデフォルトポートなので見た目だけ削る）
 		host = strings.TrimSuffix(host, ":443")
 
-		// ② もし wss 表記にしたくなったら、これを有効化すればOK（今は https のまま）
+		// ② wss にしたくなった場合（今は使わない）:
 		// host = strings.Replace(host, "https://", "wss://", 1)
 
 		// コードの下に出したい注意文
@@ -57,8 +59,7 @@ func NewResponse(status NewStatus, info NewInfo, sett *settings.GuildSettings) *
 			{
 				Title: "【AmongUsCapture と接続してください】",
 				Description: fmt.Sprintf(
-					"AmongUsCapture の🔌設定画面で下記を入力してください。\n\n\n"+
-					"\n",
+					"AmongUsCapture の🔌設定画面で下記を入力してください。\n\n",
 				),
 				Fields: []*discordgo.MessageEmbedField{
 					{
@@ -77,12 +78,14 @@ func NewResponse(status NewStatus, info NewInfo, sett *settings.GuildSettings) *
 		}
 
 	case NewNoVoiceChannel:
+		// ボイスチャンネル未参加 → エフェメラルのまま（自分だけにエラー）
 		content = sett.LocalizeMessage(&i18n.Message{
 			ID:    "commands.new.nochannel",
 			Other: "Please join a voice channel before starting a match!",
 		})
 
 	case NewLockout:
+		// ロックアウト警告はみんなに見えて欲しいので「公開メッセージ」に切り替え
 		content = sett.LocalizeMessage(&i18n.Message{
 			ID: "commands.new.lockout",
 			Other: "If I start any more games, Discord will lock me out, or throttle the games I'm running! 😦\n" +
@@ -91,7 +94,9 @@ func NewResponse(status NewStatus, info NewInfo, sett *settings.GuildSettings) *
 		}, map[string]interface{}{
 			"Games": fmt.Sprintf("%d/%d", info.ActiveGames, DefaultMaxActiveGames),
 		})
-		flags = discordgo.MessageFlags(0) // 公開メッセージ
+
+		// ここだけ Flags を 0 にして公開メッセージに
+		flags = discordgo.MessageFlags(0)
 	}
 
 	return &discordgo.InteractionResponse{
