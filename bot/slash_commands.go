@@ -81,7 +81,7 @@ func stopButtonComponents(starterUserID string, sett *settings.GuildSettings) []
                 // 左側: /link ボタン
                 discordgo.Button{
                     CustomID: linkID,
-                    Style:    discordgo.SecondaryButton,
+                    Style:    discordgo.SuccessButton,
                     Label:    labelLink,
                     Emoji:    discordgo.ComponentEmoji{Name: "👉"},
                 },
