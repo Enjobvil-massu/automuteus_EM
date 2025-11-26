@@ -766,25 +766,29 @@ func (bot *Bot) slashCommandHandler(s *discordgo.Session, i *discordgo.Interacti
                 return command.PrivateResponse(msg)
             }
 
-            // ボイスチャンネル内のメンバー一覧を SelectMenu にする
-            options := []discordgo.SelectMenuOption{}
-            for _, vs := range g.VoiceStates {
-                if vs.ChannelID == voiceChannelID {
-                    // vs.UserID からメンバー名取得
-                    member, err := bot.PrimarySession.State.Member(g.ID, vs.UserID)
-                    if err != nil {
-                        continue
-                    }
-                    label := member.User.Username
-                    if member.Nick != "" {
-                        label = member.Nick
-                    }
-                    options = append(options, discordgo.SelectMenuOption{
-                        Label: label,
-                        Value: member.User.ID,
-                    })
+        // ボイスチャンネル内のメンバー一覧を SelectMenu にする
+        options := []discordgo.SelectMenuOption{}
+        for _, vs := range g.VoiceStates {
+            if vs.ChannelID == voiceChannelID {
+                // vs.UserID からメンバー名取得
+                member, err := bot.PrimarySession.State.Member(g.ID, vs.UserID)
+                if err != nil {
+                    continue
                 }
+                label := member.User.Username
+                if member.Nick != "" {
+                    label = member.Nick
+                }
+
+                options = append(options, discordgo.SelectMenuOption{
+                    Label: label,
+                    Value: member.User.ID,
+                    Emoji: discordgo.ComponentEmoji{
+                        Name: "👤", // ★ここを追加：適当な Unicode 絵文字なら何でもOK
+                    },
+                })
             }
+        }
 
             if len(options) == 0 {
                 msg := sett.LocalizeMessage(&i18n.Message{
