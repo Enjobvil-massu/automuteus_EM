@@ -232,7 +232,7 @@ func (dgs *GameState) ToEmojiEmbedFields(emojis AlivenessEmojis, sett *settings.
 			// 未リンクプレイヤー
 			unlinkedText := sett.LocalizeMessage(&i18n.Message{
 				ID:    "discordGameState.ToEmojiEmbedFields.Unlinked",
-				Other: "Unlinked",
+				Other: "🚫 **未リンク**",
 			})
 
 			field.Name = fmt.Sprintf("%s（%s）", player.Name, unlinkedText)
